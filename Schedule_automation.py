@@ -2,7 +2,7 @@ import openpyxl
 from openpyxl import Workbook, load_workbook
 from openpyxl.utils.cell import coordinate_from_string
 from openpyxl.styles import Font
-from datetime import time
+from datetime import time, datetime
 import pyexcel as p
 import os
 
@@ -18,6 +18,7 @@ def copy_column_as_text_between_workbooks(
     # Load both workbooks
     source_wb = load_workbook(source_wb_path, data_only=True)  # data_only=True avoids formulas
     target_wb = load_workbook(target_wb_path)
+
 
     # Get worksheets
     ws_source = source_wb.worksheets[source_sheet_index]
@@ -55,7 +56,6 @@ def copy_column_as_text_between_workbooks(
     # Save the target workbook only
     target_wb.save(target_wb_path)
 
-
 def trim_empty_rows_and_columns(filename):
     wb = load_workbook(filename)
 
@@ -90,14 +90,61 @@ def convert_xlsx_to_xls(xlsx_file, xls_file):
 
     # Save as .xls
     sheet.save_as(xls_file)
+    
+def scheme_and_trip_duration (
+        source_wb_path,
+        out_wb_path,
+        trip_duration,
+        fwd_orientation
+):
+    wb_source = load_workbook(source_wb_path)
+    wb_out = load_workbook(out_wb_path)
+
+    if fwd_orientation == True:
+        forward = "Forward"
+        backward = "Backward"
+    else:
+        forward = "Backward"
+        backward = "Forward"
+
+    shift_change_time = datetime.strptime("14:00", "%H:%M").time()
+
+    for idx, sheet in enumerate(wb_out.worksheets):
+
+        max_row = 0
+        for row in range(1, sheet.max_row + 1):
+            if sheet.cell(row=row, column=1).value or sheet.cell(row=row, column=4).value:
+                max_row = row
+
+        for row in range(2, max_row + 1):
+            time_str = sheet.cell(row=row, column=4).value
+
+            shift = ""
+
+            if isinstance(time_str, str):
+                try:
+                    time_obj = datetime.strptime(time_str.strip(), "%H:%M").time()
+                    shift = "Morning shift" if time_obj < shift_change_time else "Night shift"
+                except ValueError:
+                    shift = "ERROR!"
+
+            sheet.cell(row=row, column=2).value = shift
+            sheet.cell(row=row, column=5).value = trip_duration
+            sheet.cell(row=row, column=6).value = trip_duration
+            sheet.cell(row=row, column=3).value = forward if idx == 0 else backward
+
+    wb_out.save(out_wb_path)
 
 def run_excel_stuff():####################### hook up path and dest_path as inputs to this function
 
 
     # Preparing output worksheet
     wb_out = Workbook()
-    wb_out_forward = wb_out.create_sheet("Forward")
-    wb_out_backward = wb_out.create_sheet("Backward")
+    wb_out_forward_sheet = "DR-03A(Forward)" #hooks for determining route, change these to take input
+    wb_out_backward_sheet = "DR-03A(Backward)"
+
+    wb_out_forward = wb_out.create_sheet(wb_out_forward_sheet)
+    wb_out_backward = wb_out.create_sheet(wb_out_backward_sheet)
     if 'Sheet' in wb_out.sheetnames:
         del wb_out['Sheet']
     # Write Headers (IMP for schedule)
@@ -186,6 +233,13 @@ def run_excel_stuff():####################### hook up path and dest_path as inpu
         True
     )
 
+    scheme_and_trip_duration(
+        path,
+        dest_path,
+        "20",
+        True
+    )
+
     trim_empty_rows_and_columns(dest_path)
     convert_xlsx_to_xls(dest_path,"Test format test.xls")
     os.remove(dest_path)
@@ -193,3 +247,4 @@ def run_excel_stuff():####################### hook up path and dest_path as inpu
 
 
 
+run_excel_stuff()
