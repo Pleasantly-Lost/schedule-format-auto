@@ -138,7 +138,7 @@ def scheme_and_trip_duration (
 
 def run_excel_stuff(
         input_path_from_user
-):# todo HOOK UP PATH AND DEST_PATH AS INPUTS TO THIS FUNCTION!!!
+):
 
     # List of routes - for identifying what route we're working on - some of these arent what we use in the output file
     list_of_routes = ["EXP-01","SR-02", "DR-3A", "DR-3B", "DR-4B", "DR-05", "DR-06", "DR-07", "SR-08", "EXP-09", "EXP-10",
@@ -148,7 +148,7 @@ def run_excel_stuff(
                         "DR-07" : "DR-07", "SR-08": "SR-08", "EXP-09": "ER-09", "EXP-10": "ER-10", "DR-11": "DR-11", "EXP-12": "ER-12", "DR-13": "DR-13",
                          "DR-14": "DR-014", "DR-14A": "DR-014A", "XER-15": "XER-15", "EXP-16": "ER-16" }
 
-    # Preparing input worksheet - todo MAKE THIS TAKE INPUT FROM USER/GUI
+    # Preparing input worksheet -
     path = input_path_from_user # here is the input file path - hook up to GUI
     just_the_name = os.path.basename(path)
     identifier = next(
@@ -183,7 +183,7 @@ def run_excel_stuff(
     schedule_header = ["Shift Number","Shift Type", "Scheme", "Departure Time", "Min Trip Duration", "Max Trip Duration"]
     write_header(wb_out_forward, schedule_header)
     write_header(wb_out_backward, schedule_header)
-    # Destination output - todo Set up to rename the file based on input file
+    # temporary destination output - BODGE
     dest_path = "output_temp.xlsx"
     wb_out.save(dest_path)
 
