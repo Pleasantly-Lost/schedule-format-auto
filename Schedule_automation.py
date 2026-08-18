@@ -3,6 +3,7 @@ from openpyxl import Workbook, load_workbook
 from openpyxl.utils.cell import coordinate_from_string
 from openpyxl.styles import Font
 from datetime import time, datetime
+from pathlib import Path
 import pyexcel as p
 import os
 
@@ -135,13 +136,44 @@ def scheme_and_trip_duration (
 
     wb_out.save(out_wb_path)
 
-def run_excel_stuff():####################### hook up path and dest_path as inputs to this function
+def run_excel_stuff(
+        input_path_from_user
+):# todo HOOK UP PATH AND DEST_PATH AS INPUTS TO THIS FUNCTION!!!
 
+    # List of routes - for identifying what route we're working on - some of these arent what we use in the output file
+    list_of_routes = ["EXP-01","SR-02", "DR-3A", "DR-3B", "DR-4B", "DR-05", "DR-06", "DR-07", "SR-08", "EXP-09", "EXP-10",
+                      "DR-11", "EXP-12", "DR-13", "DR-14", "DR-14A", "XER-15", "EXP-16"]
+    # Pretty Bodgy, might be a better way to do this - todo HIDE THIS IN A FUNCTION
+    string_map_routes = {"EXP-01": "ER-01","SR-02": "SR-02", "DR-3A": "DR-03A", "DR-3B": "DR-03A", "DR-4B": "DR-04B", "DR-05": "DR-05", "DR-06": "DR-06",
+                        "DR-07" : "DR-07", "SR-08": "SR-08", "EXP-09": "ER-09", "EXP-10": "ER-10", "DR-11": "DR-11", "EXP-12": "ER-12", "DR-13": "DR-13",
+                         "DR-14": "DR-014", "DR-14A": "DR-014A", "XER-15": "XER-15", "EXP-16": "ER-16" }
+
+    # Preparing input worksheet - todo MAKE THIS TAKE INPUT FROM USER/GUI
+    path = input_path_from_user # here is the input file path - hook up to GUI
+    just_the_name = os.path.basename(path)
+    identifier = next(
+        (x for x in list_of_routes if x in Path(path).stem),
+        None
+    )
+
+    if identifier is None:
+        raise ValueError(f"No valid route name found in filename - please check input file")
+
+    print(identifier)
+    print(string_map_routes[identifier])
+
+    wb_in = openpyxl.load_workbook(path)
+    wb_in2 = openpyxl.load_workbook(path, data_only=True) # why is only this one got data_only=True ?
+    ws_stats = wb_in2.worksheets[0]
+    ws_details = wb_in2.worksheets[1]
 
     # Preparing output worksheet
     wb_out = Workbook()
-    wb_out_forward_sheet = "DR-03A(Forward)" #hooks for determining route, change these to take input
-    wb_out_backward_sheet = "DR-03A(Backward)"
+
+    # hooks for determining route - also take into account some routes have the order backwards
+    # - would need to flip the actual data instead and not the order here....
+    wb_out_forward_sheet = string_map_routes[identifier] + "(Forward)"
+    wb_out_backward_sheet = string_map_routes[identifier] + "(Backward)"
 
     wb_out_forward = wb_out.create_sheet(wb_out_forward_sheet)
     wb_out_backward = wb_out.create_sheet(wb_out_backward_sheet)
@@ -151,21 +183,14 @@ def run_excel_stuff():####################### hook up path and dest_path as inpu
     schedule_header = ["Shift Number","Shift Type", "Scheme", "Departure Time", "Min Trip Duration", "Max Trip Duration"]
     write_header(wb_out_forward, schedule_header)
     write_header(wb_out_backward, schedule_header)
-
-    dest_path = "output_test.xlsx"
+    # Destination output - todo Set up to rename the file based on input file
+    dest_path = "output_temp.xlsx"
     wb_out.save(dest_path)
 
 
-    # Preparing input worksheet
-    path = "3. DR-3A Schedule Tue, Wed & Fri August 1st, 2025.xlsx" # here is the input file path
-    wb_in = openpyxl.load_workbook(path)
-    wb_in2 = openpyxl.load_workbook(path, data_only=True)
-
-    ws_stats = wb_in2.worksheets[0]
-    ws_details = wb_in2.worksheets[1]
-
-    forward_total = ws_stats['F28']
-    backward_total = ws_stats['F38']
+    # BAD!!!!! WONT WORK FOR ALL CASES!!!!! - its unused??? it IS unused
+    #forward_total = ws_stats['F28']
+    #backward_total = ws_stats['F38']
 
 
     # what was this for again?
@@ -193,6 +218,7 @@ def run_excel_stuff():####################### hook up path and dest_path as inpu
 
     ################# OUTPUT SHEET HERE IS WRONG IN THIS FUNCTION, IT MAKES A NEW OUTPUT SHEET BY ITSELF WHEN IT SHOULD ONLY MODIFY THE ONE WE MADE -- FIXED
 
+    # putting it all together
     copy_column_as_text_between_workbooks(
         path,
         1,
@@ -232,7 +258,7 @@ def run_excel_stuff():####################### hook up path and dest_path as inpu
         "D2",
         True
     )
-
+    # todo CODE HERE TO FLIP THE VALUE FROM TRUE TO FALSE IN THE FOLLOWING FUNCTION FOR THE ROUTES THAT NEED IT
     scheme_and_trip_duration(
         path,
         dest_path,
@@ -241,10 +267,12 @@ def run_excel_stuff():####################### hook up path and dest_path as inpu
     )
 
     trim_empty_rows_and_columns(dest_path)
-    convert_xlsx_to_xls(dest_path,"Test format test.xls")
+
+    # Converting the xlsx file (cant use) to xls file and deleting the old file
+    convert_xlsx_to_xls(dest_path,f"{just_the_name} - DONE.xls")
     os.remove(dest_path)
 
 
 
-
-run_excel_stuff()
+if __name__ == "__main__":
+    run_excel_stuff()
