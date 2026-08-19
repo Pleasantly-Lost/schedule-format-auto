@@ -1,11 +1,19 @@
+from ctypes import wstring_at
+from tkinter.messagebox import showerror
+
 import openpyxl
 from openpyxl import Workbook, load_workbook
 from openpyxl.utils.cell import coordinate_from_string
 from openpyxl.styles import Font
 from datetime import time, datetime
 from pathlib import Path
+import pyexcel_io.writers
+import pyexcel_io.readers
 import pyexcel as p
 import os
+
+from xlrd.formula import sheetrange
+
 
 def copy_column_as_text_between_workbooks(
     source_wb_path,
@@ -57,6 +65,60 @@ def copy_column_as_text_between_workbooks(
     # Save the target workbook only
     target_wb.save(target_wb_path)
 
+def get_travel_time(source_file, sheet_index, target):
+
+    wb_source = openpyxl.load_workbook(source_file)
+
+    if sheet_index >=  len(wb_source.sheetnames) or sheet_index < 0:
+        print(f"Error: Sheet  index'{sheet_index}' is out of range.")
+        return[]
+
+    target_sheet_name = wb_source.sheetnames[sheet_index]
+    ws_source = wb_source[target_sheet_name]
+
+    search_term = str(target).lower()
+    found_instances = []
+
+    for row in ws_source.iter_rows():
+        for cell in row:
+            if cell.value and search_term in str(cell.value).lower():
+                found_instances.append(
+                    {
+                        "coordinate": cell.offset(row=0, column=1).coordinate
+                    }
+                )
+    return found_instances
+
+
+def get_header_coordinates(source_file, sheet_index, target_header):
+
+    wb_source = openpyxl.load_workbook(source_file, read_only=True)
+
+    if sheet_index >=  len(wb_source.sheetnames) or sheet_index < 0:
+        print(f"Error: Sheet  index'{sheet_index}' is out of range.")
+        return[]
+
+    target_sheet_name = wb_source.sheetnames[sheet_index]
+    ws_source = wb_source[target_sheet_name]
+
+    print(f"Scanning Sheet Index {sheet_index} (Named: '{target_sheet_name}')...")
+
+    search_term = str(target_header).lower()
+    found_instances = []
+
+    for row in ws_source.iter_rows():
+        for cell in row:
+            if cell.value and search_term in str(cell.value).lower():
+                found_instances.append(
+                    {
+                        "coordinate": cell.coordinate,
+                        "column_letter": cell.column_letter,
+                        "data row": cell.column_letter + str(cell.row + 1),
+                        "column_index": cell.column,
+                    }
+                )
+    return found_instances
+
 def trim_empty_rows_and_columns(filename):
     wb = load_workbook(filename)
 
@@ -92,7 +154,7 @@ def convert_xlsx_to_xls(xlsx_file, xls_file):
     # Save as .xls
     sheet.save_as(xls_file)
     
-def scheme_and_trip_duration (
+def scheme_and_trip_duration ( #todo Remove the fwd_orientation part (unneeded) and make it apply trip duration seperately for fwd and bwd
         source_wb_path,
         out_wb_path,
         trip_duration,
@@ -140,13 +202,20 @@ def run_excel_stuff(
         input_path_from_user
 ):
 
+    # TODO WIDEN THE NET HERE TO CATCH INCONSISTENT FILE NAMES
     # List of routes - for identifying what route we're working on - some of these arent what we use in the output file
     list_of_routes = ["EXP-01","SR-02", "DR-3A", "DR-3B", "DR-4B", "DR-05", "DR-06", "DR-07", "SR-08", "EXP-09", "EXP-10",
                       "DR-11", "EXP-12", "DR-13", "DR-14", "DR-14A", "XER-15", "EXP-16"]
-    # Pretty Bodgy, might be a better way to do this - todo HIDE THIS IN A FUNCTION
+    # Pretty Bodgy, might be a better way to do this
     string_map_routes = {"EXP-01": "ER-01","SR-02": "SR-02", "DR-3A": "DR-03A", "DR-3B": "DR-03A", "DR-4B": "DR-04B", "DR-05": "DR-05", "DR-06": "DR-06",
                         "DR-07" : "DR-07", "SR-08": "SR-08", "EXP-09": "ER-09", "EXP-10": "ER-10", "DR-11": "DR-11", "EXP-12": "ER-12", "DR-13": "DR-13",
                          "DR-14": "DR-014", "DR-14A": "DR-014A", "XER-15": "XER-15", "EXP-16": "ER-16" }
+
+    normal_routes = ["ER-01", "SR-02", "DR-03A", "DR-03B", "DR-05", "DR-06", "DR-07", "SR-08", "ER-09",
+                     "DR-11", "DR-13", "DR-014", "DR-014A", "XER-15", "ER-16"]
+    queer_routes = ["ER-10", "ER-12", "DR-04B"]
+    normal_set = set(normal_routes)
+    queer_set = set(queer_routes)
 
     # Preparing input worksheet -
     path = input_path_from_user # here is the input file path - hook up to GUI
@@ -179,6 +248,7 @@ def run_excel_stuff(
     wb_out_backward = wb_out.create_sheet(wb_out_backward_sheet)
     if 'Sheet' in wb_out.sheetnames:
         del wb_out['Sheet']
+
     # Write Headers (IMP for schedule)
     schedule_header = ["Shift Number","Shift Type", "Scheme", "Departure Time", "Min Trip Duration", "Max Trip Duration"]
     write_header(wb_out_forward, schedule_header)
@@ -187,78 +257,136 @@ def run_excel_stuff(
     dest_path = "output_temp.xlsx"
     wb_out.save(dest_path)
 
+    # Bodge - inputs sheets are inconsistent
 
-    # BAD!!!!! WONT WORK FOR ALL CASES!!!!! - its unused??? it IS unused
-    #forward_total = ws_stats['F28']
-    #backward_total = ws_stats['F38']
-
-
-    # what was this for again?
-    # start_row = 12
-    # column_letter = 'B'
-    #
-    # end_row = start_row
-    # while True:
-    #     cell_value = ws_details[f"{column_letter}{end_row}"].value
-    #     if cell_value is None:
-    #         break
-    #     end_row += 1
-    #
-    # cell_range = ws_details[f"{column_letter}{start_row}:{column_letter}{end_row - 1}"]
-    #
-    # target_start_row = 2
-    # target_col_letter = 'A'
-    #
-    # for i, row in enumerate(cell_range):
-    #     value = row[0].value
-    #     target_cell = ws_out[f"{target_col_letter}{target_start_row + i}"]
-    #     target_cell.value = str(value) if value is not None else ""
-    #     target_cell.number_format = '@'
-
-
-    ################# OUTPUT SHEET HERE IS WRONG IN THIS FUNCTION, IT MAKES A NEW OUTPUT SHEET BY ITSELF WHEN IT SHOULD ONLY MODIFY THE ONE WE MADE -- FIXED
-
-    # putting it all together
-    copy_column_as_text_between_workbooks(
-        path,
-        1,
-        "B12",
-        dest_path,
-        0,
-        "A2",
-        False
+    column_locations_bus_no = get_header_coordinates(
+        source_file=path,
+        sheet_index=1,
+        target_header= "Bus No"
     )
 
-    copy_column_as_text_between_workbooks(
-        path,
-        1,
-        "D12",
-        dest_path,
-        0,
-        "D2",
-        True
+    print(f"Found {len(column_locations_bus_no)} columns with that name:\n")
+
+    for index, item in enumerate(column_locations_bus_no, 1):
+        print(f"Instance {index}:")
+        print(f"   -> Data row: {item['data row']}")
+        print("-" * 30)
+
+
+    column_locations_trip_start = get_header_coordinates(
+        source_file=path,
+        sheet_index=1,
+        target_header= "Trip Start Time"
     )
 
-    copy_column_as_text_between_workbooks(
+    print(f"Found {len(column_locations_trip_start)} columns with that name:\n")
+
+    for index, item in enumerate(column_locations_trip_start, 1):
+        print(f"Instance {index}:")
+        print(f"   -> Data row: {item['data row']}")
+        print("-" * 30)
+
+
+    # Copying the columns to their proper places, checking if the route is normal or queer
+    # TODO Handle DR014A and DR014 - ADD TO QUEER ROUTES - THERES A HIDDEN TABLE THAT MUST BE IGNORED
+    match string_map_routes[identifier]:
+        case x if x in normal_set:
+            copy_column_as_text_between_workbooks(
+                path,
+                1,
+                column_locations_bus_no[0]["data row"],
+                dest_path,
+                0,
+                "A2",
+                False
+            )
+
+            copy_column_as_text_between_workbooks(
+                path,
+                1,
+                column_locations_trip_start[0]["data row"],
+                dest_path,
+                0,
+                "D2",
+                True
+            )
+
+            copy_column_as_text_between_workbooks(
+                path,
+                1,
+                column_locations_bus_no[1]["data row"],
+                dest_path,
+                1,
+                "A2",
+                False
+            )
+
+            copy_column_as_text_between_workbooks(
+                path,
+                1,
+                column_locations_trip_start[1]["data row"],
+                dest_path,
+                1,
+                "D2",
+                True
+            )
+
+        case x if x in queer_routes:
+            print("how queer...")
+            copy_column_as_text_between_workbooks(
+                path,
+                1,
+                column_locations_bus_no[0]["data row"],
+                dest_path,
+                1,
+                "A2",
+                False
+            )
+
+            copy_column_as_text_between_workbooks(
+                path,
+                1,
+                column_locations_trip_start[0]["data row"],
+                dest_path,
+                1,
+                "D2",
+                True
+            )
+
+            copy_column_as_text_between_workbooks(
+                path,
+                1,
+                column_locations_bus_no[1]["data row"],
+                dest_path,
+                0,
+                "A2",
+                False
+            )
+
+            copy_column_as_text_between_workbooks(
+                path,
+                1,
+                column_locations_trip_start[1]["data row"],
+                dest_path,
+                0,
+                "D2",
+                True
+            )
+
+        case _:
+            print("error")
+
+    travel_time = get_travel_time(
         path,
         1,
-        "I12",
-        dest_path,
-        1,
-        "A2",
-        False
+        "Travel Time"
     )
 
-    copy_column_as_text_between_workbooks(
-        path,
-        1,
-        "K12",
-        dest_path,
-        1,
-        "D2",
-        True
-    )
-    # todo CODE HERE TO FLIP THE VALUE FROM TRUE TO FALSE IN THE FOLLOWING FUNCTION FOR THE ROUTES THAT NEED IT
+    print(f"Here is the travel time stuff {travel_time[0]}, {travel_time[1]}")
+
+    # todo TRIP DURATION AUTOMATIC ASSIGNMENT (PROBABLY ANOTHER LIST...) - No! List bad! take it from the input sheet!!!
+    # todo need to seperate this to apply the trip duration differently to fwd and bwd, also the value for SR02 will be "01:05" (hours: minutes) -> will need to convert this to "65" (minutes)
+    # todo for other routes it will be like this e.g "24:00" (minutes: seconds) [-_-] -> "24" (minutes)
     scheme_and_trip_duration(
         path,
         dest_path,

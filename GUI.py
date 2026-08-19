@@ -2,7 +2,8 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 from tkinterdnd2 import DND_FILES, TkinterDnD
 import threading
-
+import pyexcel_io.writers
+import pyexcel_io.readers
 from Schedule_automation import run_excel_stuff
 
 # Global variable for file path
