@@ -5,7 +5,7 @@ import openpyxl
 from openpyxl import Workbook, load_workbook
 from openpyxl.utils.cell import coordinate_from_string
 from openpyxl.styles import Font
-from datetime import time, datetime
+from datetime import time, datetime, timedelta
 from pathlib import Path
 import pyexcel_io.writers
 import pyexcel_io.readers
@@ -13,6 +13,15 @@ import pyexcel as p
 import os
 import re
 from xlrd.formula import sheetrange
+
+
+# Global constants
+NORMAL_ROUTES = {
+    "ER-01", "SR-02", "DR-03A", "DR-03B", "DR-05", "DR-06", "DR-07", "SR-08",
+    "ER-09", "DR-11", "DR-13", "XER-15", "ER-16", "DR-17", "DR-18"
+}
+QUEER_ROUTES = {"ER-10", "ER-12", "DR-04B", "DR-014", "DR-014A", }
+ALIASED_PREFIXES = {"EXP": "ER"}
 
 
 def copy_column_as_text_between_workbooks(
@@ -64,6 +73,48 @@ def copy_column_as_text_between_workbooks(
 
     # Save the target workbook only
     target_wb.save(target_wb_path)
+
+def autofill_next_row(file_path:str):
+    # 1. Load the workbook
+    wb = load_workbook(file_path)
+    ws = wb.worksheets[0]
+
+    last_row_idx = ws.max_row
+    if last_row_idx < 2:
+        raise ValueError("The worksheet needs at least a header and one data row.")
+
+    # 3. Extract values from the very last populated row
+    last_shift = ws.cell(row=last_row_idx, column=1).value  # Col A: Shift Number
+    shift_type = ws.cell(row=last_row_idx, column=2).value  # Col B: Shift Type
+    scheme = ws.cell(row=last_row_idx, column=3).value  # Col C: Scheme
+    last_departure = ws.cell(row=last_row_idx, column=4).value  # Col D: Departure Time
+    min_duration = ws.cell(row=last_row_idx, column=5).value  # Col E: Min Trip
+    max_duration = ws.cell(row=last_row_idx, column=6).value  # Col F: Max Trip
+
+    # 4. Calculate your dynamic autofill increments
+    next_shift = int(last_shift) + 1
+
+    # Safely convert time string to increment exactly 1 minute
+    time_obj = datetime.strptime(str(last_departure).strip(), "%H:%M")
+    next_departure = (time_obj + timedelta(minutes=1)).strftime("%H:%M")
+
+    # 5. Compile the new row array
+    new_row_data = [
+        next_shift,  # Column A
+        shift_type,  # Column B
+        scheme,  # Column C
+        next_departure,  # Column D
+        min_duration,  # Column E
+        max_duration  # Column F
+    ]
+
+    # 6. Append cleanly to the bottom of the worksheet and save
+    ws.append(new_row_data)
+    wb.save(file_path)
+    wb.close()
+
+    print(f"Row {last_row_idx + 1} added to sheet '{ws.title}'. Shift: {next_shift}, Time: {next_departure}")
+
 
 def get_travel_time(source_file, sheet_index, target):
 
@@ -213,63 +264,39 @@ def scheme_and_trip_duration (
 
     wb_out.save(out_wb_path)
 
+def get_route_name(input_path: str) -> str:
+    filename_stem = Path(input_path).stem.upper()
+
+    match = re.search(r'(EXP|SR|DR|ER|XER)[-\s]?(\d+)\s*([AB]?)', filename_stem)
+    if not match:
+        raise ValueError(f"No valid route found in filename '{Path(input_path).name}' .")
+
+    prefix, num_str, suffix = match.group(1), match.group(2), match.group(3)
+
+    prefix = ALIASED_PREFIXES.get(prefix, prefix)
+
+    if prefix == "DR" and num_str in ("14", "014"):
+        normalized_num = num_str.zfill(3)
+    else:
+        normalized_num = num_str.zfill(2)
+
+    final_output_route = f"{prefix}-{normalized_num}{suffix}"
+
+    if final_output_route not in NORMAL_ROUTES and final_output_route not in QUEER_ROUTES:
+        raise ValueError(f"Extracted route '{final_output_route}' is unrecognized.")
+
+    return final_output_route
+
 def run_excel_stuff(
         input_path_from_user
 ):
-    ROUTE_MAP = {
-        # ER Series
-        "EXP-01": "ER-01", "EXP-1": "ER-01", "ER-01": "ER-01", "ER-1": "ER-01",
-        "EXP-09": "ER-09", "EXP-9": "ER-09", "ER-09": "ER-09", "ER-9": "ER-09",
-        "EXP-10": "ER-10", "ER-10": "ER-10",
-        "EXP-12": "ER-12", "ER-12": "ER-12",
-        "EXP-16": "ER-16", "ER-16": "ER-16",
-
-        # SR Series
-        "SR-02": "SR-02", "SR-2": "SR-02",
-        "SR-08": "SR-08", "SR-8": "SR-08",
-
-        # DR Series
-        "DR-3A": "DR-03A", "DR-03A": "DR-03A",
-        "DR-3B": "DR-03A", "DR-03B": "DR-03A",  # Maps variants to the output name
-        "DR-4B": "DR-04B", "DR-04B": "DR-04B",
-        "DR-05": "DR-05", "DR-5": "DR-05",
-        "DR-06": "DR-06", "DR-6": "DR-06",
-        "DR-07": "DR-07", "DR-7": "DR-07",
-        "DR-11": "DR-11",
-        "DR-13": "DR-13",
-        "DR-14": "DR-014", "DR-014": "DR-014",
-        "DR-14A": "DR-014A", "DR-014A": "DR-014A",
-
-        # XER Series
-        "XER-15": "XER-15"
-    }
-
-    NORMAL_ROUTES = {
-        "ER-01", "SR-02", "DR-03A", "DR-03B", "DR-05", "DR-06", "DR-07", "SR-08",
-        "ER-09", "DR-11", "DR-13", "XER-15", "ER-16"
-    }
-    QUEER_ROUTES = {"ER-10", "ER-12", "DR-04B", "DR-014", "DR-014A",}
 
     # Preparing input worksheet -
     path = input_path_from_user # here is the input file path - hook up to GUI
     just_the_name = os.path.basename(path)
 
-    filename_stem = Path(path).stem.upper()
-
-    match = re.search(r'(EXP|SR|DR|ER|XER)[-\s]?(\d+\w*)', filename_stem)
-
-    if not match:
-        raise ValueError(f"No valid route found in filename '{Path(path).name}', check its name.")
-
-    extracted_identifier = f"{match.group(1)}-{match.group(2)}"
-
-    if extracted_identifier not in ROUTE_MAP:
-        raise ValueError(f"Extracted route '{extracted_identifier}' is unrecognized.")
-
-    final_output_route = ROUTE_MAP[extracted_identifier]
-
-    print(f"Original Code Extracted: {extracted_identifier}")
-    print(f"Standardized Clean Code: {final_output_route}")
+    identified_route = get_route_name(path)
+    print(f"Route detected as: {identified_route}")
 
     # Preparing input woksheets
     wb_in = openpyxl.load_workbook(path, data_only=True) # why is only this one got data_only=True ?
@@ -279,8 +306,8 @@ def run_excel_stuff(
     # Preparing output worksheet
     wb_out = Workbook()
 
-    wb_out_forward_sheet = final_output_route + "(Forward)"
-    wb_out_backward_sheet = final_output_route + "(Backward)"
+    wb_out_forward_sheet = identified_route + "(Forward)"
+    wb_out_backward_sheet = identified_route + "(Backward)"
 
     wb_out_forward = wb_out.create_sheet(wb_out_forward_sheet)
     wb_out_backward = wb_out.create_sheet(wb_out_backward_sheet)
@@ -325,21 +352,29 @@ def run_excel_stuff(
         print(f"   -> Data row: {item['data row']}")
         print("-" * 30)
 
+    # Handling the extra unneeded hidden table in DR-014 and DR-014A
+    if identified_route in ("DR-014", "DR-014A"):
+        print("Cringe detected")
+
+        if len(column_locations_bus_no) >= 2 and len(column_locations_trip_start) >= 2:
+            column_locations_bus_no.pop(1)
+            column_locations_trip_start.pop(1)
+            print(f"Bus no: {column_locations_bus_no}, \n Trip no: {column_locations_trip_start}")
+        else:
+            print(f"Error: Expected >= 2 values, found  bus_no={len(column_locations_bus_no)}, trip_start={len(column_locations_trip_start)}")
 
     # Copying the columns to their proper places, checking if the route is normal or queer
-    # TODO Handle DR014A and DR014 - ADD TO QUEER ROUTES - THERES A HIDDEN TABLE THAT MUST BE IGNORED
-
-    if final_output_route in NORMAL_ROUTES:
+    if identified_route in NORMAL_ROUTES:
         queerness = False
-        bus_0_dest, bus_1_dest = 0, 1  # Standard layout sheets
-    elif final_output_route in QUEER_ROUTES:
+        bus_0_dest, bus_1_dest = 0, 1  # Normal orientation
+    elif identified_route in QUEER_ROUTES:
         print("how queer...")
         queerness = True
-        bus_0_dest, bus_1_dest = 1, 0  # Swapped alternative layout sheets
+        bus_0_dest, bus_1_dest = 1, 0  # Queer orientation
     else:
         raise ValueError("Error: Route layout rules are not defined.")
 
-        # Execute copies uniformly using variables instead of duplicated chunks
+        # Execute copy function
     copy_column_as_text_between_workbooks(
         path, 1, column_locations_bus_no[0]["data row"], dest_path, bus_0_dest, "A2", False
     )
@@ -361,6 +396,16 @@ def run_excel_stuff(
         "Travel Time"
     )
 
+    if identified_route in ("DR-014", "DR-014A"):
+        print("Cringe detected, in time")
+
+        if len(travel_time) >= 2:
+            travel_time.pop(1)
+            print(f"The travel times are {travel_time}")
+        else:
+            print(f"Error: Expected >= 2 values, found travel_time={len(travel_time)}")
+
+
     print(f"Here is the travel time coordinates {travel_time[0]}, {travel_time[1]}")
 
     if queerness == False:
@@ -378,6 +423,10 @@ def run_excel_stuff(
         fwd_travel_time,
         bwd_travel_time
     )
+
+    if identified_route in ("DR-014", "DR-014A"):
+        print("Cringe detected, yet again")
+        autofill_next_row(dest_path)
 
     # Needed to make it ready for upload to system
     trim_empty_rows_and_columns(dest_path)
