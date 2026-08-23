@@ -431,8 +431,11 @@ def run_excel_stuff(
     # Needed to make it ready for upload to system
     trim_empty_rows_and_columns(dest_path)
 
+    # Make output folder if it doesnt exists
+    os.makedirs("./Finished schedules", exist_ok=True)
+
     # Converting the xlsx file (cant use) to xls file and deleting the old file
-    convert_xlsx_to_xls(dest_path,f"{just_the_name} - DONE.xls")
+    convert_xlsx_to_xls(dest_path,f"./Finished schedules/{just_the_name} - DONE.xls")
     os.remove(dest_path)
 
 
